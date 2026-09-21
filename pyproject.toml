@@ -1,0 +1,22 @@
+[project]
+name = "immovable-merchant"
+version = "0.1.0"
+description = "A terminal haggling game where code owns prices and Jev is the merchant's gut."
+requires-python = ">=3.10"
+dependencies = [
+    "httpx",
+    "typesafe-sdk",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+haggle = "immovable_merchant.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/immovable_merchant"]
