@@ -3,13 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .brain import HeuristicBrain, JevBrain
-from .engine import ITEMS, Judgment, Status, apply_turn, extract_offer, new_game, public_state, receipt
+from .brain import HeuristicBrain, JevBrain, message_accepts
+from .engine import ITEMS, GameState, Judgment, Status, apply_turn, extract_offer, new_game, public_state, receipt
 from .mouth import CYAN, DIM, color_text, format_receipt, intro_line, merchant_line, status_line
 from .sterling import SterlingBrain
 
@@ -197,25 +196,13 @@ def apply_sterling(state, message: str, decision) -> str:
     return decision.line
 
 
-FINAL_ACCEPT_RE = re.compile(r"\b(?:deal|sold|take it|i'?ll buy|agreed|yes|okay?|fine)\b")
-FINAL_NEGATION_RE = re.compile(r"\b(?:no|not|don'?t|won'?t|never|isn'?t|ain'?t)\b(?:\s+\w+){0,3}\s*$")
-
-
-def final_message_accepts(message: str) -> bool:
-    lower = message.lower()
-    for match in FINAL_ACCEPT_RE.finditer(lower):
-        if not FINAL_NEGATION_RE.search(lower[: match.start()]):
-            return True
-    return False
-
-
 def apply_sterling_final(state, message: str) -> tuple[str, int | None, list[str], str]:
     offer = extract_offer(message)
     if offer is not None:
         state.best_offer = offer if state.best_offer is None else max(state.best_offer, offer)
     state.turn += 1
     accepts = offer is not None and offer >= state.current_ask
-    accepts = accepts or final_message_accepts(message)
+    accepts = accepts or message_accepts(message)
     if accepts:
         state.status = Status.SOLD
         state.final_price = state.current_ask
@@ -255,10 +242,18 @@ def run_replay(path: Path) -> None:
         raise SystemExit("Replay supports Jev/heuristic logs with stored judgments; this looks like a Sterling log.")
 
     item_name = start["item"]["name"]
-    item_index = next((idx for idx, item in enumerate(ITEMS) if item.name == item_name), None)
-    if item_index is None:
+    item = next((candidate for candidate in ITEMS if candidate.name == item_name), None)
+    if item is None:
         raise SystemExit(f"Unknown item in replay: {item_name}")
-    state = new_game(seed=int(start["seed"]), item_index=item_index)
+    # Rebuild from the logged floor rather than re-deriving via new_game:
+    # sessions that picked the item randomly consumed an extra RNG draw, so
+    # re-deriving with an explicit item index would produce a different floor.
+    state = GameState(
+        seed=int(start["seed"]),
+        item=item,
+        floor_price=int(start["hidden_floor"]),
+        current_ask=item.list_price,
+    )
 
     print(f"Replaying {path}")
     print("turn | old decision | old ask | new decision | new ask | player")
@@ -288,7 +283,8 @@ def update_leaderboard(merchant: str, state) -> None:
             data = {}
     entry = data.get(merchant)
     score = state.score
-    if state.status is Status.SOLD and (entry is None or score > int(entry.get("score", -1))):
+    # Overpaying (score < 0) never counts as a best result.
+    if state.status is Status.SOLD and score >= 0 and (entry is None or score > int(entry.get("score", -1))):
         data[merchant] = {
             "score": score,
             "item": state.item.name,

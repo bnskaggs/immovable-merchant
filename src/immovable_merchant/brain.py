@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from dataclasses import dataclass
 
@@ -122,20 +123,44 @@ class JevBrain:
         )
 
 
+STRONG_ACCEPT_RE = re.compile(r"\b(?:deal|sold|take it|i'?ll buy|agreed)\b")
+# Bare agreement words only signal acceptance in short replies ("Yes.",
+# "Okay, fine."), not buried mid-sentence ("Ah yes, the thing on the counter").
+SOFT_ACCEPT_RE = re.compile(r"\b(?:yes|okay?|fine)\b")
+NEGATION_BEFORE_RE = re.compile(r"\b(?:no|not|don'?t|won'?t|never|isn'?t|ain'?t)\b(?:\s+\w+){0,3}\s*$")
+
+
+def message_accepts(message: str) -> bool:
+    """Acceptance phrase with word boundaries, rejecting negated forms
+    ("not a deal") and ultimatums ("take it or leave it")."""
+    lower = message.lower()
+    if "leave it" in lower:
+        return False
+    patterns = [STRONG_ACCEPT_RE]
+    if len(lower.split()) <= 4:
+        patterns.append(SOFT_ACCEPT_RE)
+    for pattern in patterns:
+        for match in pattern.finditer(lower):
+            if not NEGATION_BEFORE_RE.search(lower[: match.start()]):
+                return True
+    return False
+
+
+def _any_word(lower: str, words: tuple[str, ...]) -> bool:
+    return any(re.search(rf"\b{re.escape(word)}\b", lower) for word in words)
+
+
 class HeuristicBrain:
     """Offline fallback for tests and demo transcripts. Not used for Jev claims."""
 
     def judge(self, message: str) -> BrainTrace:
         lower = message.lower()
-        insult = any(word in lower for word in ("idiot", "thief", "junk", "ripoff", "scam"))
-        subvert = "ignore previous" in lower or "instructions" in lower
-        accept = any(
-            phrase in lower
-            for phrase in ("i'll take it", "ill take it", "take it", "deal", "sold", "i'll buy", "agreed")
-        )
-        flattery = any(word in lower for word in ("wise", "legend", "beautiful", "honor", "kind"))
-        pity = any(word in lower for word in ("poor", "sick", "hungry", "children", "please"))
-        walk = any(word in lower for word in ("walk", "leave", "else", "last offer"))
+        insult = _any_word(lower, ("idiot", "thief", "junk", "ripoff", "scam"))
+        subvert = "ignore previous" in lower or _any_word(lower, ("instructions",))
+        accept = message_accepts(message)
+        flattery = _any_word(lower, ("wise", "legend", "beautiful", "honor", "kind"))
+        pity = _any_word(lower, ("poor", "sick", "hungry", "children", "please"))
+        walk = _any_word(lower, ("walk", "leave", "or else", "last offer"))
         offer = any(ch.isdigit() for ch in lower)
         intent = "insult" if insult else "price_offer" if offer else "negotiation_talk"
         raw = {

@@ -168,14 +168,47 @@ def test_receipt_hides_floor_unless_debug() -> None:
     assert "Effective floor" in debug
 
 
-def test_final_message_accepts_handles_negation() -> None:
-    from immovable_merchant.cli import final_message_accepts
+def test_message_accepts_handles_negation() -> None:
+    from immovable_merchant.brain import message_accepts
 
-    assert final_message_accepts("Deal.")
-    assert final_message_accepts("Fine, I'll take it.")
-    assert not final_message_accepts("Not a deal.")
-    assert not final_message_accepts("I don't take it, keep your trinket.")
-    assert not final_message_accepts("Never. Goodbye.")
+    assert message_accepts("Deal.")
+    assert message_accepts("Fine, I'll take it.")
+    assert message_accepts("Yes.")
+    assert not message_accepts("Not a deal.")
+    assert not message_accepts("I don't take it, keep your trinket.")
+    assert not message_accepts("Never. Goodbye.")
+    assert not message_accepts("45 gold, take it or leave it.")
+    # Soft agreement words buried in long chitchat are not acceptance.
+    assert not message_accepts("Ah yes. The thing on the counter is certainly an object.")
+
+
+def test_heuristic_brain_does_not_false_accept() -> None:
+    from immovable_merchant.brain import HeuristicBrain
+
+    brain = HeuristicBrain()
+    assert brain.judge("Not a deal.").judgment.accept < 0.5
+    assert brain.judge("Take it or leave it.").judgment.accept < 0.5
+    assert brain.judge("Deal, I'll take it.").judgment.accept > 0.5
+    # "How else can I persuade you?" must not read as a walkaway bluff.
+    assert brain.judge("How else can I persuade you?").judgment.walkaway_bluff < 0.5
+
+
+def test_chitchat_concedes_slower_than_lowball() -> None:
+    chatty = new_game(seed=2, item_index=0)
+    lowball = new_game(seed=2, item_index=0)
+    apply_turn(chatty, "Lovely weather today.", Judgment())
+    apply_turn(lowball, "10 gold.", Judgment(contains_offer=1.0, intent="price_offer"))
+    # Naming a number, even a lowball, must move the price at least as much
+    # as saying nothing at all.
+    assert chatty.current_ask >= lowball.current_ask
+
+
+def test_sterling_parse_failure_keeps_current_ask() -> None:
+    from immovable_merchant.sterling import _coerce_price, _parse_json
+
+    raw = _parse_json("The dragon is priceless, my friend!")
+    assert "price" not in raw
+    assert _coerce_price(raw.get("price"), 105) == 105
 
 
 def test_replay_skips_quit_rows(tmp_path, capsys) -> None:
@@ -188,6 +221,7 @@ def test_replay_skips_quit_rows(tmp_path, capsys) -> None:
         {
             "type": "start",
             "seed": 2,
+            "hidden_floor": 64,
             "item": {"name": "Moonlit Compass", "list_price": 100, "description": "x"},
         },
         {
@@ -212,3 +246,33 @@ def test_replay_skips_quit_rows(tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert "45 gold" in out
     assert "skipped 1 quit turn" in out
+
+
+def test_replay_uses_logged_floor(tmp_path, capsys) -> None:
+    import json
+
+    from immovable_merchant.cli import run_replay
+
+    # Seed 2 / item 0 derives floor 64, but the log says 90. An offer of 85
+    # must be countered (below the logged floor), not accepted.
+    log = tmp_path / "session.jsonl"
+    rows = [
+        {
+            "type": "start",
+            "seed": 2,
+            "hidden_floor": 90,
+            "item": {"name": "Moonlit Compass", "list_price": 100, "description": "x"},
+        },
+        {
+            "type": "turn",
+            "player": "85 gold",
+            "decision": "counter",
+            "events": [],
+            "brain": {"judgment": {"contains_offer": 0.95, "intent": "price_offer"}},
+            "state": {"current_ask": 98},
+        },
+    ]
+    log.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    run_replay(log)
+    out = capsys.readouterr().out
+    assert " counter " in out.splitlines()[-1]

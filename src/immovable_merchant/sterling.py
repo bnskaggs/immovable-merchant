@@ -75,7 +75,9 @@ def _parse_json(text: str) -> dict:
                 return json.loads(match.group(0))
             except json.JSONDecodeError:
                 pass
-    return {"decision": "counter", "price": 9999, "line": text.strip()[:240]}
+    # No price key: _coerce_price falls back to the current ask, so a
+    # garbled LLM reply never moves the price.
+    return {"decision": "counter", "line": text.strip()[:240]}
 
 
 def _coerce_price(value, fallback: int) -> int:

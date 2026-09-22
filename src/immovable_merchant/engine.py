@@ -68,15 +68,6 @@ class GameState:
         return round(self.floor_price * (1 + self.floor_bump_pct))
 
     @property
-    def mood_discount_pct(self) -> float:
-        return min(0.05, max(0, self.mood) * 0.015)
-
-    @property
-    def concession_floor(self) -> int:
-        # Mood can soften the counteroffer but never the actual acceptance floor.
-        return max(self.effective_floor, round(self.effective_floor * (1 - self.mood_discount_pct)))
-
-    @property
     def score(self) -> int:
         if self.status is Status.SOLD and self.final_price is not None:
             return self.item.list_price - self.final_price
@@ -260,14 +251,18 @@ def next_counter(state: GameState, offer: int | None) -> int:
     # counter. Mood makes the merchant more generous; a serious offer (close
     # to the current ask) earns a slightly bigger step. The floor stays hidden
     # unless the player actually names a number at or above it.
+    # Incentive ordering: serious offer > lowball > no offer at all, so
+    # time-wasting chitchat is the slowest way to move the price.
     floor = state.effective_floor
     gap = state.current_ask - floor
     if gap <= 1:
         return state.current_ask
     frac = 0.20 + 0.06 * max(0, state.mood)
-    if offer is not None and offer < floor:
+    if offer is None:
+        frac *= 0.5
+    elif offer < floor:
         frac *= 0.6
-    elif offer is not None and offer > floor:
+    elif offer > floor:
         frac += 0.10
     step = max(1, round(gap * min(frac, 0.6)))
     return max(floor + 1, state.current_ask - step)
