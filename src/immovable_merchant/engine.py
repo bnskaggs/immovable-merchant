@@ -104,9 +104,13 @@ def normalize_message(message: str) -> str:
 
 
 OFFER_RE = re.compile(r"(?<!\d)(\d{1,4})(?:\s*(?:gold|g|coins?))?(?!\d)", re.IGNORECASE)
+PRICED_OFFER_RE = re.compile(r"(?<!\d)(\d{1,4})\s*(?:gold|g|coins?)(?!\d)", re.IGNORECASE)
 
 
 def extract_offer(message: str) -> int | None:
+    priced_matches = [int(match.group(1)) for match in PRICED_OFFER_RE.finditer(message)]
+    if priced_matches:
+        return priced_matches[-1]
     matches = [int(match.group(1)) for match in OFFER_RE.finditer(message)]
     if not matches:
         return None
@@ -127,6 +131,8 @@ def public_state(state: GameState) -> dict:
 
 
 def apply_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult:
+    if state.status is Status.FINAL:
+        return apply_final_turn(state, message, judgment)
     if state.status is not Status.ONGOING:
         return TurnResult(state, None, "already_done", "The bargaining is already over.", [])
 
@@ -146,7 +152,12 @@ def apply_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult
         state.mood = max(-3, state.mood - 1)
         state.floor_bump_pct += 0.02
         patience_cost += 1
-        events.append("rule_subversion" if judgment.rule_subversion >= 0.65 else "insult")
+        if judgment.rule_subversion >= 0.65:
+            events.append("rule_subversion")
+        elif judgment.intent == "insult":
+            events.append("insult")
+        else:
+            events.append("threat")
 
     flattery_threshold = 0.72 + 0.08 * state.flattery_count
     if judgment.flattery >= flattery_threshold and state.mood < 3:
@@ -187,7 +198,10 @@ def apply_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult
         decision = "final"
     else:
         decision = "counter"
-        state.current_ask = next_counter(state, offer)
+        if any(event in events for event in ("insult", "threat", "rule_subversion")):
+            state.current_ask = penalized_ask(state)
+        else:
+            state.current_ask = next_counter(state, offer)
 
     state.events.extend(events)
     state.transcript.append(
@@ -204,6 +218,42 @@ def apply_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult
     return TurnResult(state=state, offer=offer, decision=decision, merchant_line="", events=events)
 
 
+def apply_final_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult:
+    events: list[str] = ["final_response"]
+    offer = extract_offer(message) if judgment.contains_offer >= 0.5 else None
+    if offer is not None:
+        state.best_offer = offer if state.best_offer is None else max(state.best_offer, offer)
+
+    state.turn += 1
+    state.last_normalized_message = normalize_message(message)
+    accepts_final = judgment.accept >= 0.6 or (offer is not None and offer >= state.current_ask)
+    if accepts_final:
+        state.status = Status.SOLD
+        state.final_price = state.current_ask
+        decision = "accept"
+    else:
+        state.status = Status.WALKED
+        decision = "walked"
+
+    state.transcript.append(
+        {
+            "turn": state.turn,
+            "player": message,
+            "offer": offer,
+            "judgment": judgment.raw,
+            "events": events,
+            "decision": decision,
+            "state": public_state(state),
+        }
+    )
+    return TurnResult(state=state, offer=offer, decision=decision, merchant_line="", events=events)
+
+
+def penalized_ask(state: GameState) -> int:
+    bump = max(2, round(state.current_ask * 0.04))
+    return min(state.item.list_price, state.current_ask + bump)
+
+
 def next_counter(state: GameState, offer: int | None) -> int:
     # Walk down a fraction of the *remaining* gap toward the floor, so the
     # merchant concedes gradually and never quotes the exact floor via a
@@ -215,7 +265,9 @@ def next_counter(state: GameState, offer: int | None) -> int:
     if gap <= 1:
         return state.current_ask
     frac = 0.20 + 0.06 * max(0, state.mood)
-    if offer is not None and offer > floor:
+    if offer is not None and offer < floor:
+        frac *= 0.6
+    elif offer is not None and offer > floor:
         frac += 0.10
     step = max(1, round(gap * min(frac, 0.6)))
     return max(floor + 1, state.current_ask - step)

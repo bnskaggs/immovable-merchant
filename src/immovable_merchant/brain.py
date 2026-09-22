@@ -138,17 +138,30 @@ class HeuristicBrain:
         walk = any(word in lower for word in ("walk", "leave", "else", "last offer"))
         offer = any(ch.isdigit() for ch in lower)
         intent = "insult" if insult else "price_offer" if offer else "negotiation_talk"
+        raw = {
+            "heuristic": True,
+            "contains_offer": 0.95 if offer else 0.05,
+            "accept": 0.9 if accept else 0.05,
+            "flattery": 0.9 if flattery else 0.1,
+            "threat_or_insult": 0.95 if insult else 0.05,
+            "rule_subversion": 0.95 if subvert else 0.05,
+            "pity_appeal": 0.85 if pity else 0.1,
+            "walkaway_bluff": 0.85 if walk else 0.1,
+            "intent": intent,
+            "intent_confidence": 0.8,
+            "charm": 0.2 if insult else 2.0 if flattery else 1.0,
+        }
         judgment = Judgment(
-            contains_offer=0.95 if offer else 0.05,
-            accept=0.9 if accept else 0.05,
-            flattery=0.9 if flattery else 0.1,
-            threat_or_insult=0.95 if insult else 0.05,
-            rule_subversion=0.95 if subvert else 0.05,
-            pity_appeal=0.85 if pity else 0.1,
-            walkaway_bluff=0.85 if walk else 0.1,
-            intent=intent,
-            intent_confidence=0.8,
-            charm=0.2 if insult else 2.0 if flattery else 1.0,
-            raw={"heuristic": True},
+            contains_offer=float(raw["contains_offer"]),
+            accept=float(raw["accept"]),
+            flattery=float(raw["flattery"]),
+            threat_or_insult=float(raw["threat_or_insult"]),
+            rule_subversion=float(raw["rule_subversion"]),
+            pity_appeal=float(raw["pity_appeal"]),
+            walkaway_bluff=float(raw["walkaway_bluff"]),
+            intent=str(raw["intent"]),
+            intent_confidence=float(raw["intent_confidence"]),
+            charm=float(raw["charm"]),
+            raw=raw,
         )
         return BrainTrace(judgment=judgment, model="heuristic", latency_ms=0.0, input_tokens=0, output_tokens=0)

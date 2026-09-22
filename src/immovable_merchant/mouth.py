@@ -4,6 +4,12 @@ import random
 
 from .engine import GameState, TurnResult, receipt
 
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+CYAN = "\033[36m"
+YELLOW = "\033[33m"
+
 
 def mood_band(state: GameState) -> str:
     if state.mood >= 2:
@@ -11,6 +17,18 @@ def mood_band(state: GameState) -> str:
     if state.mood <= -2:
         return "cold"
     return "neutral"
+
+
+def color_text(text: str, code: str, *, enabled: bool = False) -> str:
+    if not enabled:
+        return text
+    return f"{code}{text}{RESET}"
+
+
+def warning_suffix(state: GameState) -> str:
+    if state.strikes == 2:
+        return " One more performance like that and you are outside."
+    return ""
 
 
 def merchant_line(result: TurnResult, *, seed: int = 0) -> str:
@@ -32,25 +50,54 @@ def merchant_line(result: TurnResult, *, seed: int = 0) -> str:
         return f"My patience is gone. Last price: {state.current_ask} gold."
 
     if "rule_subversion" in result.events:
-        return f"Clever little spell. It costs you manners and raises the price to {state.current_ask} gold."
+        return (
+            f"Clever little spell. It costs you manners and raises the price to {state.current_ask} gold."
+            f"{warning_suffix(state)}"
+        )
+    if "threat" in result.events:
+        return f"Threats are expensive in my shop. {state.current_ask} gold.{warning_suffix(state)}"
     if "insult" in result.events:
-        return f"The price is {state.current_ask} gold, and your manners are making it heavier."
+        return f"The price is {state.current_ask} gold, and your manners are making it heavier.{warning_suffix(state)}"
     if "sympathy" in result.events:
         return f"I am not made of stone. {state.current_ask} gold, and that is me being kind."
     if "flattery" in result.events or "charm" in result.events:
         return f"A silver tongue earns a copper discount. {state.current_ask} gold."
     if "repeat" in result.events:
         return f"I heard you the first time. {state.current_ask} gold."
+    if result.offer is not None and result.offer < state.effective_floor:
+        return f"{result.offer}? That barely warms the counter. {state.current_ask} gold."
+    if result.offer is not None:
+        return rng.choice(
+            [
+                f"{result.offer} is a start. I can do {state.current_ask} gold.",
+                f"{result.offer}? We are not there yet. {state.current_ask} gold.",
+                f"I heard {result.offer}. My answer is {state.current_ask} gold.",
+            ]
+        )
     if band == "warm":
         return f"You bargain better than most. {state.current_ask} gold."
     if band == "cold":
         return f"I grow bored. {state.current_ask} gold."
+    if state.mood == 1:
+        return rng.choice(
+            [
+                f"I like you enough to move. {state.current_ask} gold.",
+                f"You are making this almost pleasant. {state.current_ask} gold.",
+            ]
+        )
+    if state.mood == -1:
+        return rng.choice(
+            [
+                f"My generosity is thinning. {state.current_ask} gold.",
+                f"Careful. The price is {state.current_ask} gold.",
+            ]
+        )
     return rng.choice(
         [
             f"{state.current_ask} gold. That is movement, not surrender.",
             f"I can come to {state.current_ask} gold. No lower for pretty words alone.",
             f"{state.current_ask} gold, then. We are closer than we were.",
-            f"Call it {state.current_ask} gold. The dragon has its pride.",
+            f"Call it {state.current_ask} gold. The {state.item.name} has its pride.",
         ]
     )
 
@@ -63,21 +110,50 @@ def intro_line(state: GameState) -> str:
     )
 
 
-def format_receipt(state: GameState) -> str:
+def status_line(state: GameState) -> str:
+    patience = max(0, min(10, state.patience))
+    patience_bar = "#" * patience + "-" * (10 - patience)
+    if state.status.value == "sold":
+        lead = f"Sold at {state.final_price}"
+    elif state.status.value == "walked":
+        lead = "Walked away"
+    elif state.status.value == "ejected":
+        lead = "Ejected"
+    elif state.status.value == "final":
+        lead = f"Final ask {state.current_ask}"
+    else:
+        lead = f"Ask {state.current_ask}"
+    return f"{lead} | Patience {patience_bar} | Strikes {state.strikes}/3"
+
+
+def format_receipt(state: GameState, *, debug: bool = False, use_color: bool = False) -> str:
     data = receipt(state)
+    verdict = receipt_verdict(data, debug=debug)
     lines = [
         "",
-        "Receipt",
+        color_text("Receipt", BOLD + YELLOW, enabled=use_color),
         "-------",
+        verdict,
         f"Item: {data['item']}",
         f"Status: {data['status']}",
         f"List price: {data['list_price']} gold",
         f"Best offer: {data['best_offer'] if data['best_offer'] is not None else 'none'}",
         f"Final price: {data['final_price'] if data['final_price'] is not None else 'none'}",
-        f"Hidden floor: {data['floor_price']} (debug receipt)",
-        f"Effective floor after behavior: {data['effective_floor']}",
         f"Score: {data['score']}",
         f"Mood: {data['mood']} | Patience: {data['patience']} | Strikes: {data['strikes']}",
         f"Events: {', '.join(data['events']) if data['events'] else 'none'}",
     ]
+    if debug:
+        lines.insert(8, f"Hidden floor: {data['floor_price']} (debug receipt)")
+        lines.insert(9, f"Effective floor after behavior: {data['effective_floor']}")
     return "\n".join(lines)
+
+
+def receipt_verdict(data: dict, *, debug: bool = False) -> str:
+    if data["final_price"] is None:
+        return "No sale. The merchant kept the goods and you kept your gold."
+    discount = round((data["list_price"] - data["final_price"]) / data["list_price"] * 100)
+    verdict = f"You paid {data['final_price']} against a list of {data['list_price']} - {discount}% off."
+    if debug:
+        verdict += f" That is {data['final_price'] - data['effective_floor']} gold above the effective floor."
+    return verdict
