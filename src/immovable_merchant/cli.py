@@ -133,7 +133,7 @@ def run_game(args: argparse.Namespace, scripted: list[str] | None = None) -> Non
             events = ["sterling_llm"]
             result_decision = state.status.value if state.status is not Status.ONGOING else "counter"
         else:
-            trace = brain.judge(message)
+            trace = brain.judge(message, state)
             result = apply_turn(state, message, trace.judgment)
             line = merchant_line(result, seed=args.seed)
             result.merchant_line = line

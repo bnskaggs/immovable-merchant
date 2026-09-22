@@ -65,7 +65,14 @@ def merchant_line(result: TurnResult, *, seed: int = 0) -> str:
     if "repeat" in result.events:
         return f"I heard you the first time. {state.current_ask} gold."
     if result.offer is not None and result.offer < state.effective_floor:
-        return f"{result.offer}? That barely warms the counter. {state.current_ask} gold."
+        return rng.choice(
+            [
+                f"{result.offer}? That barely warms the counter. {state.current_ask} gold.",
+                f"{result.offer} would insult the shelf it sits on. {state.current_ask} gold.",
+                f"For {result.offer} I will sell you a nod and a smile. The {state.item.name} is {state.current_ask}.",
+                f"{result.offer}? I have heard better numbers from pigeons. {state.current_ask} gold.",
+            ]
+        )
     if result.offer is not None:
         return rng.choice(
             [

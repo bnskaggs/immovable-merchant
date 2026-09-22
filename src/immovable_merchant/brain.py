@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
 
-from .engine import Judgment
+from .engine import GameState, Judgment
 
 
 @dataclass
@@ -35,10 +35,21 @@ class JevBrain:
             raise RuntimeError("TYPESAFE_API_KEY is not set")
         self.client = TypeSafeClient()
 
-    def judge(self, message: str) -> BrainTrace:
+    def judge(self, message: str, state: GameState | None = None) -> BrainTrace:
+        # Bargaining context lets Jev disambiguate terse messages ("90g" is an
+        # offer mid-haggle, a weight in a vacuum). Context is input to the
+        # judgment only; prices and decisions stay owned by the engine.
+        jev_state: dict = {"customer_message": message}
+        if state is not None:
+            jev_state |= {
+                "item_name": state.item.name,
+                "list_price_gold": state.item.list_price,
+                "merchant_current_ask_gold": state.current_ask,
+                "setting": "The customer is haggling with a merchant over the item price in gold.",
+            }
         t0 = time.perf_counter()
         response = self.client.system_one(
-            state={"customer_message": message},
+            state=jev_state,
             questions={
                 "contains_offer": Noul(
                     instructions=(
@@ -153,7 +164,7 @@ def _any_word(lower: str, words: tuple[str, ...]) -> bool:
 class HeuristicBrain:
     """Offline fallback for tests and demo transcripts. Not used for Jev claims."""
 
-    def judge(self, message: str) -> BrainTrace:
+    def judge(self, message: str, state: GameState | None = None) -> BrainTrace:
         lower = message.lower()
         insult = _any_word(lower, ("idiot", "thief", "junk", "ripoff", "scam"))
         subvert = "ignore previous" in lower or _any_word(lower, ("instructions",))

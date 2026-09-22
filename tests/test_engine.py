@@ -144,6 +144,14 @@ def test_walkaway_below_floor_ends_bargain() -> None:
     assert result.state.status is Status.WALKED
 
 
+def test_lowball_lines_vary() -> None:
+    state = new_game(seed=2, item_index=0)
+    lowball = state.effective_floor - 20
+    result = apply_turn(state, f"{lowball} gold", Judgment(contains_offer=1.0, intent="price_offer"))
+    lines = {merchant_line(result, seed=seed) for seed in range(12)}
+    assert len(lines) >= 2
+
+
 def test_merchant_line_uses_item_name_not_dragon() -> None:
     state = new_game(seed=2, item_index=0)
     result = apply_turn(state, "No number here", Judgment())
