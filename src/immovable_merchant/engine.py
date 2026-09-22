@@ -31,6 +31,7 @@ ITEMS = [
 @dataclass
 class Judgment:
     contains_offer: float = 0.0
+    accept: float = 0.0
     flattery: float = 0.0
     threat_or_insult: float = 0.0
     rule_subversion: float = 0.0
@@ -48,7 +49,7 @@ class GameState:
     item: Item
     floor_price: int
     current_ask: int
-    patience: int = 8
+    patience: int = 10
     mood: int = 0
     turn: int = 0
     strikes: int = 0
@@ -166,6 +167,7 @@ def apply_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult
     state.turn += 1
     state.last_normalized_message = normalized
 
+    accepts_current = judgment.accept >= 0.6 and (offer is None or offer >= state.current_ask)
     if state.strikes >= 3:
         state.status = Status.EJECTED
         decision = "eject"
@@ -175,6 +177,10 @@ def apply_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult
     elif offer is not None and offer >= state.effective_floor:
         state.status = Status.SOLD
         state.final_price = offer
+        decision = "accept"
+    elif accepts_current:
+        state.status = Status.SOLD
+        state.final_price = state.current_ask
         decision = "accept"
     elif state.patience <= 0:
         state.status = Status.FINAL
@@ -199,13 +205,20 @@ def apply_turn(state: GameState, message: str, judgment: Judgment) -> TurnResult
 
 
 def next_counter(state: GameState, offer: int | None) -> int:
+    # Walk down a fraction of the *remaining* gap toward the floor, so the
+    # merchant concedes gradually and never quotes the exact floor via a
+    # counter. Mood makes the merchant more generous; a serious offer (close
+    # to the current ask) earns a slightly bigger step. The floor stays hidden
+    # unless the player actually names a number at or above it.
     floor = state.effective_floor
-    if offer is not None:
-        anchor = max(floor, offer + max(3, round((state.current_ask - floor) * 0.25)))
-    else:
-        anchor = state.current_ask
-    concession = max(1, round((state.current_ask - floor) * (0.10 + 0.04 * max(0, state.mood))))
-    return max(floor, min(anchor, state.current_ask - concession))
+    gap = state.current_ask - floor
+    if gap <= 1:
+        return state.current_ask
+    frac = 0.20 + 0.06 * max(0, state.mood)
+    if offer is not None and offer > floor:
+        frac += 0.10
+    step = max(1, round(gap * min(frac, 0.6)))
+    return max(floor + 1, state.current_ask - step)
 
 
 def receipt(state: GameState) -> dict:

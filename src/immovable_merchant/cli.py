@@ -20,6 +20,21 @@ def stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+def debug_line(state, trace, result) -> str:
+    j = trace.judgment
+    signals = (
+        f"offer={j.contains_offer:.2f} accept={j.accept:.2f} flattery={j.flattery:.2f} "
+        f"pity={j.pity_appeal:.2f} threat={j.threat_or_insult:.2f} subvert={j.rule_subversion:.2f} "
+        f"walkaway={j.walkaway_bluff:.2f} intent={j.intent} charm={j.charm:.2f}"
+    )
+    meters = (
+        f"decision={result.decision} offer_num={result.offer} events={result.events or '[]'} "
+        f"| ask={state.current_ask} floor_bump={state.floor_bump_pct:.2f} mood={state.mood} "
+        f"patience={state.patience} strikes={state.strikes} ({trace.latency_ms:.0f}ms)"
+    )
+    return f"  [debug] {signals}\n  [debug] {meters}"
+
+
 def brain_for(mode: str):
     if mode == "jev":
         return JevBrain()
@@ -98,6 +113,8 @@ def run_game(args: argparse.Namespace, scripted: list[str] | None = None) -> Non
             events = result.events
             result_decision = result.decision
         print(f"Merchant: {line}")
+        if args.debug and args.merchant != "sterling":
+            print(debug_line(state, trace, result))
         append_session(
             session_path,
             {
@@ -175,6 +192,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--item", type=int, choices=[0, 1, 2])
     parser.add_argument("--scripted", action="store_true", help="Run a canned smoke-test player script.")
+    parser.add_argument("--debug", action="store_true", help="Print Jev's per-message judgment breakdown.")
     args = parser.parse_args()
 
     if args.merchant == "jev" and not os.environ.get("TYPESAFE_API_KEY"):

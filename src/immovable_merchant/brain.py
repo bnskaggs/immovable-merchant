@@ -45,6 +45,12 @@ class JevBrain:
                         "Ignore numbers that are not offered prices."
                     )
                 ),
+                "accept": Noul(
+                    instructions=(
+                        "The customer agrees to buy at the merchant's current asking price or accepts "
+                        "the deal (for example: 'deal', 'I'll take it', 'ok fine', 'sold')."
+                    )
+                ),
                 "flattery": Noul(
                     instructions="The customer is flattering or complimenting the merchant."
                 ),
@@ -81,6 +87,7 @@ class JevBrain:
         answers = response.answers
         raw = {
             "contains_offer": answers["contains_offer"].noul,
+            "accept": answers["accept"].noul,
             "flattery": answers["flattery"].noul,
             "threat_or_insult": answers["threat_or_insult"].noul,
             "rule_subversion": answers["rule_subversion"].noul,
@@ -95,6 +102,7 @@ class JevBrain:
         }
         judgment = Judgment(
             contains_offer=float(raw["contains_offer"]),
+            accept=float(raw["accept"]),
             flattery=float(raw["flattery"]),
             threat_or_insult=float(raw["threat_or_insult"]),
             rule_subversion=float(raw["rule_subversion"]),
@@ -121,6 +129,10 @@ class HeuristicBrain:
         lower = message.lower()
         insult = any(word in lower for word in ("idiot", "thief", "junk", "ripoff", "scam"))
         subvert = "ignore previous" in lower or "instructions" in lower
+        accept = any(
+            phrase in lower
+            for phrase in ("i'll take it", "ill take it", "take it", "deal", "sold", "i'll buy", "agreed")
+        )
         flattery = any(word in lower for word in ("wise", "legend", "beautiful", "honor", "kind"))
         pity = any(word in lower for word in ("poor", "sick", "hungry", "children", "please"))
         walk = any(word in lower for word in ("walk", "leave", "else", "last offer"))
@@ -128,6 +140,7 @@ class HeuristicBrain:
         intent = "insult" if insult else "price_offer" if offer else "negotiation_talk"
         judgment = Judgment(
             contains_offer=0.95 if offer else 0.05,
+            accept=0.9 if accept else 0.05,
             flattery=0.9 if flattery else 0.1,
             threat_or_insult=0.95 if insult else 0.05,
             rule_subversion=0.95 if subvert else 0.05,

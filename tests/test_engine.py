@@ -64,6 +64,36 @@ def test_repeat_costs_extra_patience() -> None:
     assert patience_after_first - state.patience == 2
 
 
+def test_bare_acceptance_buys_at_current_ask() -> None:
+    state = new_game(seed=7, item_index=0)
+    start_ask = state.current_ask
+    result = apply_turn(state, "I'll take it", Judgment(accept=0.95, intent="chitchat"))
+    assert result.state.status is Status.SOLD
+    assert result.state.final_price == start_ask
+
+
+def test_counter_does_not_collapse_to_floor() -> None:
+    state = new_game(seed=2, item_index=0)
+    floor = state.effective_floor
+    lowball = floor - 20
+    result = apply_turn(state, f"{lowball} gold", Judgment(contains_offer=1.0, intent="price_offer"))
+    assert result.state.status is Status.ONGOING
+    # A single lowball must not reveal the floor: the counter stays well above it.
+    assert result.state.current_ask > floor + 1
+
+
+def test_take_it_or_leave_it_with_lowball_is_not_acceptance() -> None:
+    state = new_game(seed=2, item_index=0)
+    lowball = state.effective_floor - 10
+    result = apply_turn(
+        state,
+        f"{lowball} take it or leave it",
+        Judgment(contains_offer=1.0, accept=0.9, intent="price_offer"),
+    )
+    # The offer is below floor and below ask, so acceptance must not fire.
+    assert result.state.status is Status.ONGOING
+
+
 def test_walkaway_below_floor_ends_bargain() -> None:
     state = new_game(seed=6, item_index=0)
     offer = state.effective_floor - 10

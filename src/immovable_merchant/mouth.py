@@ -45,7 +45,14 @@ def merchant_line(result: TurnResult, *, seed: int = 0) -> str:
         return f"You bargain better than most. {state.current_ask} gold."
     if band == "cold":
         return f"I grow bored. {state.current_ask} gold."
-    return f"{state.current_ask} gold. A fair counter, no matter what your tragic poetry says."
+    return rng.choice(
+        [
+            f"{state.current_ask} gold. That is movement, not surrender.",
+            f"I can come to {state.current_ask} gold. No lower for pretty words alone.",
+            f"{state.current_ask} gold, then. We are closer than we were.",
+            f"Call it {state.current_ask} gold. The dragon has its pride.",
+        ]
+    )
 
 
 def intro_line(state: GameState) -> str:
